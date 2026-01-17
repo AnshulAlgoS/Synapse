@@ -1,7 +1,7 @@
-# sEMG Gesture Classification Submission
+# Synapse sEMG Gesture Classification Submission
 
 ## Overview
-This submission contains a deep learning solution for classifying 5 hand gestures from 8-channel sEMG signals. The model is a 3-layer 1D Convolutional Neural Network (CNN) trained on the Synapse Dataset.
+This submission contains a deep learning solution for classifying 5 hand gestures from 8-channel surface electromyography (sEMG) signals. The core model is a compact 3-layer one-dimensional Convolutional Neural Network (1D CNN) trained exclusively on the official Synapse training dataset.
 
 **Key Performance:**
 - **Best Validation F1-Score:** ~0.70 (Subject-wise split)
@@ -9,7 +9,13 @@ This submission contains a deep learning solution for classifying 5 hand gesture
 - **Preprocessing:** Band-pass filtering (20-450 Hz), Sliding Window (200ms, 50ms stride), Channel-wise Z-score normalization.
 
 ## Methods (Short Summary)
-Raw 8-channel sEMG signals are first band-pass filtered (20–450 Hz), segmented into overlapping 200 ms windows with 50 ms stride, and normalized per channel using statistics computed from the training set only. Each window is fed to a compact 3-layer 1D CNN that learns temporal features and inter-channel relationships, followed by global average pooling and a linear classifier over the 5 gestures. Training uses only the official Synapse training data, with a strict subject-wise split so that one subject is held out for validation to mimic evaluation on unseen users. The model is optimized with Adam and selected based on the best macro F1-score on the held-out subject, balancing accuracy, robustness, and model complexity for deployment.
+Raw 8-channel sEMG signals are first band-pass filtered (20–450 Hz), segmented into overlapping 200 ms windows with 50 ms stride, and normalized per channel using statistics computed from the training set only. Each window is fed to a compact 3-layer 1D CNN that learns temporal features and inter-channel relationships, followed by global average pooling and a linear classifier over the 5 gestures. Training uses only the official Synapse training data, with a strict subject-wise split so that one subject is held out for validation to mimic evaluation on unseen users. The model is optimized with Adam and selected based on the best macro F1-score on the held-out subject, balancing accuracy, robustness, and model complexity in line with the challenge criteria.
+
+## Submission Contents
+- Complete Python codebase for data loading, preprocessing, training, evaluation, and inference.
+- Trained model artefacts: weights, preprocessing statistics, and configuration.
+- Dependency specification in `requirements.txt`.
+- This README describing the approach, model design, file structure, and inference usage.
 
 ## File Structure
 ```
@@ -75,10 +81,10 @@ python src/train.py --config configs/config.yaml
 ```
 
 The script will:
-- Load data with a subject-wise split (Subject 5 is held out for validation).
-- Apply band-pass filtering and normalization.
+- Load data from the official Synapse training dataset with a subject-wise split (one subject held out for validation).
+- Apply band-pass filtering, sliding-window segmentation, and channel-wise normalization using training-only statistics.
 - Train for 50 epochs (default).
-- Save the best model to `models/emg_gesture_model.pth`.
+- Save the best model (by validation macro F1-score) to `models/emg_gesture_model.pth`.
 
 ## Model & Methodology
 ### Signal Processing
@@ -97,4 +103,10 @@ The model is a 1D CNN designed for temporal multi-channel data:
 ### Training Strategy
 - **Loss:** CrossEntropyLoss
 - **Optimizer:** Adam (LR=0.001, Weight Decay=1e-4)
-- **Validation:** Subject 5 (Session 1) used as unseen validation set to ensure generalization.
+- **Validation:** A held-out subject is used as an unseen validation set to estimate cross-subject generalization and to select the best model checkpoint.
+
+## Compliance with Challenge Rules
+- Only the official Synapse training dataset is used; no external data or pretraining are introduced.
+- Subject-wise splitting ensures that no windows from the validation subject appear in the training set.
+- Normalization statistics are computed strictly on the training subset and reused for validation and inference, preventing data leakage.
+- The model is intentionally compact to provide a favorable trade-off between accuracy, macro F1-score, and parameter count, as required by the evaluation protocol.
