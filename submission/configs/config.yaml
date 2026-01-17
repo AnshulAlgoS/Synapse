@@ -1,0 +1,50 @@
+random_seed: 42
+data:
+  # Path to the root of the provided Synapse dataset
+  raw_root: "../Synapse_Dataset"
+  # Optional: local copy/symlink of training data for this submission
+  train_root: "data/train"
+  session_names:
+    - "Session1"
+  # Subject-wise split to avoid data leakage and encourage cross-subject generalization
+  val_subject_ids:
+    - "session1_subject_5"
+  # If true, will create an internal mapping from subject directories to integer IDs
+  subject_wise_split: true
+  # Windowing parameters
+  window_size: 200
+  window_stride: 50
+preprocessing:
+  normalize: true
+  # Channel-wise z-score normalization statistics are computed on training set only
+  normalization_stats_path: "models/preprocessing_stats.npz"
+  # Optional band-pass filter for sEMG in [20, 450] Hz
+  bandpass:
+    enabled: true
+    low_hz: 20.0
+    high_hz: 450.0
+    sampling_rate_hz: 1000.0
+    filter_order: 4
+
+training:
+  batch_size: 128
+  num_workers: 0
+  num_epochs: 50
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  # Fraction of training data used for an internal validation split within
+  # each subject split (set to 0.0 to disable)
+  internal_val_fraction: 0.0
+
+model:
+  num_channels: 8
+  num_classes: 5
+  # These will be inferred from data automatically, but can be overridden if needed
+  conv_channels: [32, 64, 128]
+  kernel_sizes: [7, 5, 3]
+  dropout: 0.3
+
+logging:
+  output_dir: "models"
+  best_model_path: "models/emg_gesture_model.pth"
+  metrics_path: "models/metrics.json"

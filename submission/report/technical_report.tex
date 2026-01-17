@@ -1,0 +1,179 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amsfonts}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{booktabs}
+
+\title{Surface EMG-Based Gesture Classification using a Lightweight 1D CNN}
+\author{Synapse EMG Gesture Team}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Surface electromyography (sEMG) enables non-invasive observation of neuromuscular activity and supports intuitive human--machine interaction. This report presents a complete, competition-ready pipeline for classifying five hand gestures from multichannel sEMG recordings. Each data sample is a fixed-length temporal window recorded from eight electrodes with an associated gesture label. The proposed system combines principled signal preprocessing (band-pass filtering and channel-wise z-score normalization) with a compact one-dimensional convolutional neural network (1D CNN) designed for efficient temporal feature extraction. The model is trained and evaluated with strict subject-wise splits to avoid data leakage and encourage cross-subject generalization. We report accuracy, precision, recall, and macro F1-score, emphasizing the importance of F1 under potential class imbalance. The resulting architecture offers a strong trade-off between performance, robustness, and computational cost, making it suitable both for offline benchmarking and future embedded deployment.
+\end{abstract}
+
+\section{Introduction}
+Natural and reliable decoding of human intention from muscle activity is a key enabler for prosthetic control, exoskeletons, and human--computer interaction. Surface electromyography (sEMG) provides a non-invasive means of capturing muscle activation patterns by measuring voltage fluctuations at the skin surface. The Synapse dataset used in this work contains synchronized sEMG recordings corresponding to five distinct hand gestures performed by multiple subjects across a recording session.
+
+In the context of a machine learning competition, a robust gesture classification pipeline must satisfy several requirements: it should avoid data leakage, generalize across subjects, and remain computationally efficient for potential deployment on resource-constrained hardware. This report details the design choices behind our end-to-end solution, including preprocessing, feature extraction, model architecture, training setup, and evaluation methodology.
+
+\section{Nature of sEMG Signals}
+sEMG signals are stochastic, nonstationary time-series that reflect the superposition of motor unit action potentials. Key characteristics include:
+\begin{itemize}
+    \item \textbf{Frequency content:} Most useful information for voluntary contractions lies between approximately 20--450~Hz, with energy concentrated in the 50--150~Hz band.
+    \item \textbf{Low signal-to-noise ratio:} sEMG is contaminated by motion artifacts, power-line interference, and baseline drift.
+    \item \textbf{High inter-subject variability:} Electrode placement, skin impedance, and anatomy cause variations in amplitude and spectral content across subjects.
+    \item \textbf{Nonstationarity:} Signal statistics change over time due to fatigue, shifting electrodes, or varying contraction strength.
+\end{itemize}
+
+These properties motivate a preprocessing pipeline that both restricts the frequency band of interest and normalizes amplitudes in a way that is robust across subjects and sessions.
+
+\section{Dataset Description}
+The available dataset is organized into session and subject folders. Each subject folder contains multiple CSV files corresponding to different gestures and trials. Each CSV file consists of fixed-length temporal windows sampled from eight sEMG channels with a single integer gesture label. Concretely:
+\begin{itemize}
+    \item Each row represents one temporal window.
+    \item Columns 1--$8T$ contain flattened sEMG samples from eight channels, where $T$ is the number of time steps per window.
+    \item The final column stores the gesture label in $\{0,1,2,3,4\}$.
+\end{itemize}
+
+We load all CSV files, reconstruct the $(C,T)$ arrangement for each window by reshaping the feature vector into eight channels of length $T$, and associate each window with a subject identifier derived from the folder structure. This subject information is critical for constructing leakage-free train/validation splits.
+
+\section{Signal Preprocessing}
+\subsection{Band-pass Filtering}
+To focus on the physiologically relevant frequency band and suppress low-frequency drift and high-frequency noise, we apply a fourth-order Butterworth band-pass filter between 20~Hz and 450~Hz. The filter is designed in the digital domain using the sampling frequency specified in the configuration file. We use zero-phase filtering (forward and backward filtering) to avoid phase distortion, which is important for preserving temporal relationships among channels.
+
+Filtering is applied consistently to both training and validation (and later test) data using identical filter coefficients. This ensures that the model experiences the same spectral content during training and evaluation.
+
+\subsection{Amplitude Normalization}
+Due to inter-subject differences in muscle strength and electrode impedance, raw sEMG amplitudes are not directly comparable between subjects. We therefore apply channel-wise z-score normalization:
+\[
+    \tilde{x}_{c,t} = \frac{x_{c,t} - \mu_c}{\sigma_c},
+\]
+where $x_{c,t}$ is the sample at channel $c$ and time index $t$, and $\mu_c$, $\sigma_c$ are the mean and standard deviation estimated from all training windows for channel $c$. This normalization has two important properties:
+\begin{itemize}
+    \item It removes global scale differences between channels and subjects.
+    \item It is computed \emph{only} on the training set to avoid leaking information from validation or test data.
+\end{itemize}
+
+The resulting normalization statistics (per-channel means and standard deviations) are stored to disk and reused during inference to guarantee identical preprocessing.
+
+\subsection{Handling Inter-subject Variability}
+Inter-subject variability is addressed at two levels:
+\begin{enumerate}
+    \item \textbf{Preprocessing:} Channel-wise normalization reduces between-subject differences in signal amplitude.
+    \item \textbf{Data splitting:} We evaluate generalization by reserving specific subjects entirely for validation. The model never sees windows from these subjects during training, forcing it to learn features that transfer across individuals rather than overfitting to a particular subject's muscle patterns.
+\end{enumerate}
+
+\section{Feature Extraction Rationale}
+Traditional sEMG approaches often rely on hand-crafted features such as mean absolute value, waveform length, and zero-crossing counts. While effective, such features require domain expertise and may discard discriminative information. Instead, we leverage a convolutional neural network to learn temporal features directly from raw (preprocessed) windows.
+
+One-dimensional convolutions along the temporal axis capture local activation patterns, co-activations across channels, and short-term dynamics. Stacked convolutional layers with nonlinearities and normalization progressively build higher-level, shift-invariant representations. Global average pooling aggregates temporal information into a fixed-size embedding, reducing the risk of overfitting and keeping the model compact.
+
+\section{Model Architecture}
+The proposed architecture is a lightweight 1D CNN tailored for multichannel sEMG:
+\begin{itemize}
+    \item Input: $(B, C, T)$ where $B$ is the batch size, $C=8$ channels, and $T$ is the number of time steps.
+    \item Conv1D ($C \rightarrow 32$) + BatchNorm + ReLU
+    \item Conv1D ($32 \rightarrow 64$) + BatchNorm + ReLU
+    \item Conv1D ($64 \rightarrow 128$) + BatchNorm + ReLU
+    \item Global average pooling over time
+    \item Fully-connected layer ($128 \rightarrow 64$) + ReLU + Dropout
+    \item Output layer ($64 \rightarrow 5$) producing logits for each gesture class
+\end{itemize}
+
+This design emphasizes:
+\begin{itemize}
+    \item \textbf{Parameter efficiency}: Using relatively small channel widths and global pooling keeps the parameter count modest.
+    \item \textbf{Computational efficiency}: 1D convolutions are inexpensive and well-suited to real-time deployment.
+    \item \textbf{Generalization}: Batch normalization and dropout regularize the network and mitigate overfitting.
+\end{itemize}
+
+\section{Training Methodology}
+\subsection{Data Splitting and Leakage Avoidance}
+To avoid data leakage and properly assess cross-subject generalization, we perform a subject-wise split:
+\begin{itemize}
+    \item Training set: all windows from a subset of subjects.
+    \item Validation set: all windows from one or more held-out subjects.
+\end{itemize}
+
+No window from a validation subject appears in the training set. The configuration file explicitly lists validation subject identifiers, ensuring a reproducible split.
+
+\subsection{Loss Function and Optimization}
+Gesture classification is formulated as a five-class supervised learning problem. We use cross-entropy loss:
+\[
+    \mathcal{L} = -\frac{1}{N} \sum_{i=1}^{N} \log p_{y_i},
+\]
+where $p_{y_i}$ is the predicted probability of the true class for sample $i$. Optimization is performed using the Adam optimizer with a configurable learning rate and weight decay. Adam's adaptive learning rates are well-suited to noisy gradient signals arising from sEMG variability.
+
+\subsection{Training Hyperparameters}
+Key hyperparameters include:
+\begin{itemize}
+    \item Batch size (default: 128)
+    \item Number of epochs (default: 50)
+    \item Learning rate (default: $10^{-3}$)
+    \item Weight decay (default: $10^{-4}$)
+    \item Random seed for reproducibility
+\end{itemize}
+
+All hyperparameters are stored in a YAML configuration file, enabling easy experimentation and consistent runs.
+
+\subsection{Model Selection}
+During training, we monitor performance on the validation set at the end of each epoch. The primary selection criterion is the macro F1-score, which balances performance across classes. Whenever the validation macro F1-score improves, the model weights are saved to disk as the current best checkpoint. This strategy explicitly optimizes for balanced performance rather than just overall accuracy.
+
+\section{Evaluation Metrics}
+We report the following metrics on the validation set:
+\begin{itemize}
+    \item \textbf{Accuracy}: fraction of correctly classified windows.
+    \item \textbf{Precision (macro)}: mean per-class precision.
+    \item \textbf{Recall (macro)}: mean per-class recall.
+    \item \textbf{F1-score (macro)}: harmonic mean of per-class precision and recall.
+\end{itemize}
+
+Macro F1-score is particularly important when class frequencies are imbalanced. A model that performs well on the majority class but poorly on minority gestures can still achieve deceptively high accuracy. Macro F1 gives equal weight to each class, providing a fairer assessment of gesture-wise performance.
+
+\section{Results}
+Due to the competition setting and hidden test labels, we primarily focus on validation results obtained from held-out subjects. The training script logs per-epoch loss, accuracy, precision, recall, and macro F1-score, and stores them in a JSON file for later analysis. In practice, we observe:
+\begin{itemize}
+    \item Rapid initial convergence within the first few epochs.
+    \item Gradual improvements in macro F1-score as the model learns more discriminative temporal patterns.
+    \item Stable validation performance, indicating limited overfitting thanks to subject-wise splitting, normalization, and dropout.
+\end{itemize}
+
+Exact numeric results will depend on the final hyperparameter configuration and any competition-provided data splits. The provided codebase is designed to reproduce and extend these experiments reliably.
+
+\section{Discussion}
+\subsection{Design Trade-offs}
+The chosen 1D CNN architecture provides a balance between expressiveness and efficiency. Deeper or wider networks, or transformer-based models, might achieve higher accuracy but risk overfitting and increased computational cost. Given the constraints of a competition setting and the potential requirement for on-device inference, the current model deliberately avoids such complexity.
+
+Similarly, we favor simple yet effective preprocessing: band-pass filtering and z-score normalization. More advanced techniques (e.g., adaptive filtering, independent component analysis, or sophisticated feature engineering) might offer marginal gains but at the cost of increased implementation complexity and reduced transparency.
+
+\subsection{Generalization Across Subjects}
+Subject-wise splitting is crucial for realistic assessment. A random window-level split can result in windows from the same gesture trial appearing in both training and validation sets, artificially inflating performance. By holding out entire subjects, we simulate the real-world scenario in which a trained model must generalize to previously unseen individuals.
+
+Our preprocessing and model design encourage such generalization by:
+\begin{itemize}
+    \item Normalizing channel amplitudes to reduce subject-specific scale differences.
+    \item Learning local temporal patterns that are more likely to transfer across subjects.
+    \item Regularizing the model with dropout and batch normalization.
+\end{itemize}
+
+\subsection{Avoidance of Data Leakage}
+We take several steps to prevent data leakage:
+\begin{itemize}
+    \item Normalization statistics are computed exclusively on the training portion of the data.
+    \item Band-pass filter design is independent of the data distribution and based on physiological prior knowledge.
+    \item Subject-wise splitting ensures no overlap of windows between training and validation sets.
+    \item Configuration files and scripts are structured to avoid accidental reuse of validation data during training.
+\end{itemize}
+
+\section{Conclusion}
+This report presented a complete, reproducible pipeline for multichannel sEMG-based gesture classification. The system integrates principled signal preprocessing with a compact 1D CNN and subject-wise evaluation to achieve robust performance under realistic conditions. The accompanying codebase provides training, evaluation, and inference scripts, along with configuration, documentation, and a technical report. Together, these components form a solid baseline for competition participation and a foundation for future research on cross-subject sEMG decoding.
+
+\end{document}
+
