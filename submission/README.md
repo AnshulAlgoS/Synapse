@@ -8,6 +8,9 @@ This submission contains a deep learning solution for classifying 5 hand gesture
 - **Model Architecture:** 3-layer 1D CNN with Batch Normalization and Dropout
 - **Preprocessing:** Band-pass filtering (20-450 Hz), Sliding Window (200ms, 50ms stride), Channel-wise Z-score normalization.
 
+## Methods (Short Summary)
+Raw 8-channel sEMG signals are first band-pass filtered (20–450 Hz), segmented into overlapping 200 ms windows with 50 ms stride, and normalized per channel using statistics computed from the training set only. Each window is fed to a compact 3-layer 1D CNN that learns temporal features and inter-channel relationships, followed by global average pooling and a linear classifier over the 5 gestures. Training uses only the official Synapse training data, with a strict subject-wise split so that one subject is held out for validation to mimic evaluation on unseen users. The model is optimized with Adam and selected based on the best macro F1-score on the held-out subject, balancing accuracy, robustness, and model complexity for deployment.
+
 ## File Structure
 ```
 submission/
